@@ -29,8 +29,7 @@ simulation_app = app_launcher.app
 import torch
 
 from omni.isaac.lab.envs import ManagerBasedRLEnv
-
-from omni.isaac.lab_tasks.manager_based.dev_env.tutorial.custom_env import CustomEnvCfg
+from custom_task.custom_env import CustomEnvCfg
 def main():
     """Main function."""
     # create environment configuration
