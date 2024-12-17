@@ -26,24 +26,24 @@ from omni.isaac.lab_assets import CRAZYFLIE_CFG  # isort: skip
 from omni.isaac.lab.markers import CUBOID_MARKER_CFG  # isort: skip
 
 
-class QuadcopterEnvWindow(BaseEnvWindow):
-    """Window manager for the Quadcopter environment."""
+# class QuadcopterEnvWindow(BaseEnvWindow):
+#     """Window manager for the Quadcopter environment."""
 
-    def __init__(self, env: QuadcopterEnv, window_name: str = "IsaacLab"):
-        """Initialize the window.
+#     def __init__(self, env: QuadcopterEnv, window_name: str = "IsaacLab"):
+#         """Initialize the window.
 
-        Args:
-            env: The environment object.
-            window_name: The name of the window. Defaults to "IsaacLab".
-        """
-        # initialize base window
-        super().__init__(env, window_name)
-        # add custom UI elements
-        with self.ui_window_elements["main_vstack"]:
-            with self.ui_window_elements["debug_frame"]:
-                with self.ui_window_elements["debug_vstack"]:
-                    # add command manager visualization
-                    self._create_debug_vis_ui_element("targets", self.env)
+#         Args:
+#             env: The environment object.
+#             window_name: The name of the window. Defaults to "IsaacLab".
+#         """
+#         # initialize base window
+#         super().__init__(env, window_name)
+#         # add custom UI elements
+#         with self.ui_window_elements["main_vstack"]:
+#             with self.ui_window_elements["debug_frame"]:
+#                 with self.ui_window_elements["debug_vstack"]:
+#                     # add command manager visualization
+#                     self._create_debug_vis_ui_element("targets", self.env)
 
 
 @configclass
@@ -56,7 +56,7 @@ class QuadcopterEnvCfg(DirectRLEnvCfg):
     state_space = 0
     debug_vis = True
 
-    ui_window_class_type = QuadcopterEnvWindow
+    # ui_window_class_type = QuadcopterEnvWindow
 
     # simulation
     sim: SimulationCfg = SimulationCfg(

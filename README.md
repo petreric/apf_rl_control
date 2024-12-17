@@ -39,7 +39,7 @@ The development so far includes:
 - **Custom Environment**: The `dev_ws` directory contains the implementation of an environment that includes a custom USD environment and a robot model.
 - **Interactive Scene**: The project is currently at the stage of using the interactive scene from the IsaacLab tutorial, which forms the basis for further development.
 
-Per adesso c'è prova scene dove c'è il robot che spawna in un ambiente, e in real_application sto provando ad implementare il tutto per il RL. COntinuare su quello
+Devo lavorare su ugv_apf in IsaacLab non questo (è uguale).Ho aggiunto l'ambiente della stanza. Ora devo provare prima a vedere se il training con il drone funziona, poi cambiare gli states e la reward.
 
 
 
