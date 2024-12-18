@@ -34,7 +34,7 @@ class UgvEnvCfg(DirectRLEnvCfg):
     episode_length_s = 10.0
     decimation = 2
     action_space = 4
-    observation_space = 12
+    observation_space = 15
     state_space = 0
     debug_vis = True
 
@@ -67,7 +67,7 @@ class UgvEnvCfg(DirectRLEnvCfg):
         debug_vis=False,
     )
 
-    scene: InteractiveSceneCfg = UgvSceneCfg(num_envs=20, env_spacing=11, replicate_physics=True)
+    scene: InteractiveSceneCfg = UgvSceneCfg(num_envs=4000, env_spacing=11, replicate_physics=True)
     # robot
     robot: ArticulationCfg = CRAZYFLIE_CFG.replace(prim_path="/World/envs/env_.*/Robot")
 
@@ -95,9 +95,8 @@ class UgvEnv(DirectRLEnv):
         self._episode_sums = {
             key: torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
             for key in [
-                "lin_vel",
-                "ang_vel",
-                "distance_to_goal",
+                # "ang_vel_penalty",
+                "apf_difference",
             ]
         }
         # Get specific body indices
@@ -128,36 +127,141 @@ class UgvEnv(DirectRLEnv):
     def _apply_action(self):
         self._robot.set_external_force_and_torque(self._thrust, self._moment, body_ids=self._body_id)
 
+    # def _get_observations(self) -> dict:
+    #     desired_pos_b, _ = subtract_frame_transforms(
+    #         self._robot.data.root_state_w[:, :3], self._robot.data.root_state_w[:, 3:7], self._desired_pos_w
+    #     )
+    #     robot_position = desired_pos_b
+    #     print(f"robot_position: {robot_position}")
+    #     obs = torch.cat(
+    #         [
+    #             self._robot.data.root_lin_vel_b,
+    #             self._robot.data.root_ang_vel_b,
+    #             self._robot.data.projected_gravity_b,
+    #             desired_pos_b,
+    #         ],
+    #         dim=-1,
+    #     )
+    #     print(f"obs: {obs}")
+    #     observations = {"policy": obs}
+    #     return observations
+
     def _get_observations(self) -> dict:
+        """
+        Calculate and return the observation dictionary with normalized potential field values.
+        """
+        # Constants for the attractive potential field
+        radius = 0.3  # Radius for surrounding points
+        num_points = 11  # Number of points around the robot
+        mu = 1.0  # Parabolic constant
+        U_max = 100.0  # Max potential field value
+        U_min = 0.0  # Min potential field value
+
+        # Ensure all tensors are on the same device (use self.device or the desired device)
+        device = self._robot.device  # Assuming the robot's device is either 'cpu' or 'cuda'
+
+        # Robot position (Center of Mass) and desired (goal) position
+        # desired_pos_b is the goal in the robot's local frame, convert it to the world frame
         desired_pos_b, _ = subtract_frame_transforms(
-            self._robot.data.root_state_w[:, :3], self._robot.data.root_state_w[:, 3:7], self._desired_pos_w
+            self._robot.data.root_state_w[:, :3].to(device), 
+            self._robot.data.root_state_w[:, 3:7].to(device),
+            self._desired_pos_w.to(device)
         )
-        obs = torch.cat(
-            [
-                self._robot.data.root_lin_vel_b,
-                self._robot.data.root_ang_vel_b,
-                self._robot.data.projected_gravity_b,
-                desired_pos_b,
-            ],
-            dim=-1,
-        )
+        robot_position = self._robot.data.root_state_w[:, :3].to(device)  # CoM position (world frame)
+        goal_position = desired_pos_b  # Goal position (robot's local frame)
+
+        # Compute distance from robot CoM to the goal (in robot's body frame)
+        dist_robot_to_goal = torch.norm(goal_position, dim=-1) # distance in the body frame
+        normalized_distance_to_goal = dist_robot_to_goal / 10.0
+        U_robot = 0.5 * mu * dist_robot_to_goal**2  # Potential field value at robot CoM
+
+        # Normalize CoM potential field
+        U_robot_norm = (U_robot - U_max) / (U_min - U_max)
+
+        # Compute surrounding points on a circle around the robot (in world frame)
+        angles = torch.linspace(0.0, float(2 * torch.pi), num_points, dtype=torch.float32, device=device)  # angles for the points
+        # surrounding_points = torch.stack([
+        #     robot_position[:, 0].unsqueeze(-1) + radius * torch.cos(angles),  # x positions
+        #     robot_position[:, 1].unsqueeze(-1) + radius * torch.sin(angles),  # y positions
+        #     robot_position[:, 2].unsqueeze(-1).expand(-1, num_points)  # z positions (constant for all points)
+        # ], dim=-1)  # shape: (num_envs, num_points, 3)
+        surrounding_points = torch.stack([
+            radius * torch.cos(angles),  # x positions
+            radius * torch.sin(angles),  # y positions
+            torch.zeros_like(angles)  # z positions (elevation = 0)        
+            ], dim=-1)  # shape: (num_envs, num_points, 3)
+
+        # Compute distances of surrounding points to the goal (in world frame)
+        dist_points_to_goal = torch.norm(surrounding_points - goal_position.unsqueeze(1), dim=-1)  # (num_envs, num_points)
+        U_points = 0.5 * mu * dist_points_to_goal**2  # Potential field values for surrounding points
+
+        # Normalize surrounding point potential fields
+        U_points_norm = (U_points - U_max) / (U_min - U_max)
+
+        goal_direction = self._desired_pos_w - self._robot.data.root_pos_w
+        goal_direction = goal_direction / torch.norm(goal_direction, dim=1, keepdim=True)
+
+        movement_direction = self._robot.data.root_lin_vel_b / torch.norm(self._robot.data.root_lin_vel_b, dim=1, keepdim=True)
+        relative_angle = torch.acos(torch.sum(movement_direction * goal_direction, dim=1))
+        normalized_relative_angle = relative_angle / torch.pi
+
+
+        # Concatenate CoM and surrounding points into observation vector
+        obs = torch.cat([U_robot.unsqueeze(-1), U_points,self._robot.data.root_ang_vel_b],
+                         dim=-1)  # shape: (num_envs, 12)
+        # Prepare the observation dictionary
         observations = {"policy": obs}
         return observations
+
     
+    # def _get_rewards(self) -> torch.Tensor:
+    #     lin_vel = torch.sum(torch.square(self._robot.data.root_lin_vel_b), dim=1)
+    #     ang_vel = torch.sum(torch.square(self._robot.data.root_ang_vel_b), dim=1)
+    #     distance_to_goal = torch.linalg.norm(self._desired_pos_w - self._robot.data.root_pos_w, dim=1)
+    #     distance_to_goal_mapped = 1 - torch.tanh(distance_to_goal / 0.8)
+    #     rewards = {
+    #         "lin_vel": lin_vel * self.cfg.lin_vel_reward_scale * self.step_dt,
+    #         "ang_vel": ang_vel * self.cfg.ang_vel_reward_scale * self.step_dt,
+    #         "distance_to_goal": distance_to_goal_mapped * self.cfg.distance_to_goal_reward_scale * self.step_dt,
+    #     }
+    #     reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
+    #     # Logging
+    #     for key, value in rewards.items():
+    #         self._episode_sums[key] += value
+    #     return reward
+
     def _get_rewards(self) -> torch.Tensor:
-        lin_vel = torch.sum(torch.square(self._robot.data.root_lin_vel_b), dim=1)
+
+        # Angular velocity penalty (sum of squares of each component in body frame)
         ang_vel = torch.sum(torch.square(self._robot.data.root_ang_vel_b), dim=1)
+
+        # Distance to goal reward (mapped with tanh)
         distance_to_goal = torch.linalg.norm(self._desired_pos_w - self._robot.data.root_pos_w, dim=1)
         distance_to_goal_mapped = 1 - torch.tanh(distance_to_goal / 0.8)
+
+        # Attractive Potential Field (APF) difference reward
+        mu = 1.0  # APF coefficient
+        current_apf = 0.5 * mu * distance_to_goal**2  # APF at the current step
+
+        # Compute the APF difference (initialize to zero for the first step)
+        if not hasattr(self, "previous_apf"):
+            self.previous_apf = torch.zeros_like(current_apf)  # Initialize previous APF
+        apf_difference = self.previous_apf - current_apf
+        self.previous_apf = current_apf  # Update for the next step
+
+        # Reward components with scaling factors
         rewards = {
-            "lin_vel": lin_vel * self.cfg.lin_vel_reward_scale * self.step_dt,
-            "ang_vel": ang_vel * self.cfg.ang_vel_reward_scale * self.step_dt,
-            "distance_to_goal": distance_to_goal_mapped * self.cfg.distance_to_goal_reward_scale * self.step_dt,
+            # "ang_vel_penalty": -ang_vel * 0.09 * self.step_dt,
+            "apf_difference": apf_difference 
         }
+
+        # Total reward as the sum of all components
         reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
-        # Logging
+
+        # Logging rewards for monitoring
         for key, value in rewards.items():
             self._episode_sums[key] += value
+
         return reward
     
 
