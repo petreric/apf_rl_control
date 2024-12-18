@@ -1,3 +1,9 @@
+# Project Status: Incomplete
+
+This project is currently a work in progress and is not yet complete. Once the development is finished, I will update this README file with a detailed guide on how to set up, configure, and use the project.
+
+Thank you for your patience!
+
 # APF-Based Reinforcement Learning for UGV Control in Isaac Sim
 
 This project aims to replicate the implementation of a Reinforcement Learning (RL) agent combined with Artificial Potential Fields (APF) to control an Unmanned Ground Vehicle (UGV) in NVIDIA's Isaac Sim. This work builds on concepts presented in the following paper:
@@ -39,7 +45,7 @@ The development so far includes:
 - **Custom Environment**: The `dev_ws` directory contains the implementation of an environment that includes a custom USD environment and a robot model.
 - **Interactive Scene**: The project is currently at the stage of using the interactive scene from the IsaacLab tutorial, which forms the basis for further development.
 
-Devo lavorare su ugv_apf in IsaacLab non questo (è uguale).Ho aggiunto l'ambiente della stanza. Ora devo provare prima a vedere se il training con il drone funziona, poi cambiare gli states e la reward.
+NOTE THE PROJECT IS NOT COMPLETE. W
 
 
 
